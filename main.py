@@ -41,7 +41,7 @@ def predict(image, gender, height, weight): # (imagefile, string, float, float)
     # Predict measuremets
     measurements = measurement_model.predict([mask_pred, ghw])
 
-    return measurements[0] # [ankle, arm-length, bicep, calf, chest, forearm, height, hip, leg-length, shoulder-breadth, shoulder-to-crotch, thigh, waist, wrist] 14 total
+    return measurements[0].tolist() # [ankle, arm-length, bicep, calf, chest, forearm, height, hip, leg-length, shoulder-breadth, shoulder-to-crotch, thigh, waist, wrist] 14 total
 
 @app.route('/process', methods=['POST'])
 def process_image():
@@ -72,12 +72,20 @@ def process_image():
         image = tf.image.decode_image(image_content)
         # Get the ghw
         gender = request.form.get('gender')
-        height = float(request.form.get('height'))
-        weight = float(request.form.get('weight'))
+        height_str = request.form.get('height')
+        weight_str = request.form.get('weight')
+
+        if height_str is None or weight_str is None:
+            return jsonify({'error': 'Height and weight must be provided as valid numbers'})
+
+        try:
+            height = float(height_str)
+            weight = float(weight_str)
+        except ValueError:
+            return jsonify({'error': 'Invalid height or weight format'})
         
         # Predict
         predictions = predict(image, gender, height, weight)
-
         predictions_dict = {
             'ankle': predictions[0],
             'arm-length': predictions[1],
