@@ -9,10 +9,10 @@ from keras.utils import img_to_array
 
 app = Flask(__name__)
 
-PROJECT_ID = 'equifit-testing'
-BUCKET_NAME = 'equifit-model-bucket'
+# PROJECT_ID = 'equifit-testing'
+# BUCKET_NAME = 'equifit-model-bucket'
 
-client = storage.Client.from_service_account_json('equifit-storage-keyfile.json')
+# client = storage.Client.from_service_account_json('equifit-storage-keyfile.json')
 
 # Load models
 silhouette_model = load_model('models/silhouette_model.h5')
