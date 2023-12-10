@@ -1,0 +1,6 @@
+gunicorn
+Flask
+tensorflow
+google.cloud.storage
+numpy
+keras
