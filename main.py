@@ -23,7 +23,7 @@ neck_prediction_model = load_model('models/neck_prediction_model.h5')
 # Creates and loads pretrained deeplab model
 tarball_path = "models/deeplab_model.tar.gz"
 graph_def = None
-graph = tf.Graph()
+graph = tf.compat.v1.Graph()
 # Extract frozen graph from tar archive
 tar_file = tarfile.open(tarball_path)
 for tar_info in tar_file.getmembers():
@@ -40,7 +40,7 @@ with graph.as_default():
     tf.import_graph_def(graph_def, name='')
 DEEPLAB_SESSION = tf.compat.v1.Session(graph=graph)
 
-def process_image(image, h=512, w=512):
+def preprocess_image(image, h=512, w=512):
     image = tf.image.resize_with_pad(image, target_height=h, target_width=w)    # resize with padding so it's not deform the image
 
     return img_to_array(image)
@@ -50,7 +50,7 @@ def run_deeplab(image, h=512, w=512):
     OUTPUT_TENSOR_NAME = 'SemanticPredictions:0'
 
     # Preprocess the image
-    image_array = process_image(image, h, w)
+    image_array = preprocess_image(image, h, w)
     # Run inference
     batch_seg_map = DEEPLAB_SESSION.run(OUTPUT_TENSOR_NAME, feed_dict={INPUT_TENSOR_NAME: [image_array]})
     seg_map = batch_seg_map[0]
@@ -79,8 +79,10 @@ def predict(image, gender, height, weight, age): # (imagefile, string, float, fl
     seg_map = run_deeplab(image, 256, 256)
     person_mask = (seg_map == 15).astype(np.uint8)                          # only take the person mask (shape: (256, 256))
     mask_pred = np.stack([person_mask, person_mask, person_mask], axis=-1)  # convert to RGB-like (shape: (256, 256, 3))
-    # Predict measuremets
-    measurements = measurement_model.predict([mask_pred, ghw])              # [ankle, arm-length, bicep, calf, chest, forearm, height, hip, leg-length, shoulder-breadth, shoulder-to-crotch, thigh, waist, wrist] 14 total
+    mask_pred = np.array(mask_pred)
+    mask_pred = np.expand_dims(mask_pred, axis=0)
+    # Predict measuremets and get the first batch (index 0)
+    measurements = measurement_model.predict([mask_pred, ghw])[0]           # [ankle, arm-length, bicep, calf, chest, forearm, height, hip, leg-length, shoulder-breadth, shoulder-to-crotch, thigh, waist, wrist] 14 total
     # Predict neck
     neck_pred = neck_prediction_model.predict([
         age,
@@ -103,9 +105,9 @@ def predict(image, gender, height, weight, age): # (imagefile, string, float, fl
         bodyfat_pred = predict_bodyfat(neck_pred, height, measurements[12])
     else:
         bodyfat_pred = predict_bodyfat(neck_pred, height, measurements[12], False, measurements[7])
-    measurements.append(bodyfat_pred)
+    measurements = np.append(measurements, bodyfat_pred)
 
-    return measurements[0].tolist()
+    return measurements.tolist()
 
 @app.route('/process', methods=['POST'])
 def process_image():
