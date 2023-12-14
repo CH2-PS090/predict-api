@@ -2,6 +2,8 @@ from flask import Flask, request, jsonify
 from google.cloud import storage
 from google.cloud.storage import Blob
 
+import tarfile
+import os
 import numpy as np
 import tensorflow as tf
 from keras.models import load_model
@@ -14,30 +16,58 @@ app = Flask(__name__)
 
 # client = storage.Client.from_service_account_json('equifit-storage-keyfile.json')
 
-# Load models
-silhouette_model = load_model('models/silhouette_model.h5')
+# Load measurement model
 measurement_model = load_model('models/measurement_model.h5')
 
-def load_image(image, h=512, w=512):
+# Creates and loads pretrained deeplab model
+tarball_path = "models/deeplab_model.tar.gz"
+graph_def = None
+graph = tf.Graph()
+# Extract frozen graph from tar archive
+tar_file = tarfile.open(tarball_path)
+for tar_info in tar_file.getmembers():
+    if 'frozen_inference_graph' in os.path.basename(tar_info.name):
+        file_handle = tar_file.extractfile(tar_info)
+        graph_def = tf.compat.v1.GraphDef.FromString(file_handle.read())
+        break
+tar_file.close()
+# Check if the inference graph was found
+if graph_def is None:
+    raise RuntimeError('Cannot find inference graph in tar archive.')
+# Create tensorflow session from the imported graph
+with graph.as_default():
+    tf.import_graph_def(graph_def, name='')
+DEEPLAB_SESSION = tf.compat.v1.Session(graph=graph)
+
+def process_image(image, h=512, w=512):
     image = tf.image.resize_with_pad(image, target_height=h, target_width=w)    # resize with padding so it's not deform the image
 
-    return img_to_array(image)/255.       # return the normalized image array
+    return img_to_array(image)
+
+def run_deeplab(image, h=512, w=512):
+    INPUT_TENSOR_NAME = 'ImageTensor:0'
+    OUTPUT_TENSOR_NAME = 'SemanticPredictions:0'
+
+    # Preprocess the image
+    image_array = process_image(image, h, w)
+    # Run inference
+    batch_seg_map = DEEPLAB_SESSION.run(OUTPUT_TENSOR_NAME, feed_dict={INPUT_TENSOR_NAME: [image_array]})
+    seg_map = batch_seg_map[0]
+    return seg_map
 
 def predict(image, gender, height, weight): # (imagefile, string, float, float)
-    # Prepare data
-    image = load_image(image, 256, 256)
+    # Prepare ghw data
     if gender == 'male':
         ghw = [0, 1, height, weight]
     elif gender == 'female':
         ghw = [1, 0, height, weight]
-        
-    image = np.array(image)
     ghw = np.array(ghw)
-    image = np.expand_dims(image, axis=0)
     ghw = np.expand_dims(ghw, axis=0)
 
     # Predict silhouette
-    mask_pred = silhouette_model.predict(image)
+    seg_map = run_deeplab(image, 256, 256)
+    person_mask = (seg_map == 15).astype(np.uint8)                          # only take the person mask (shape: (256, 256))
+    mask_pred = np.stack([person_mask, person_mask, person_mask], axis=-1)  # convert to RGB-like (shape: (256, 256, 3))
     # Predict measuremets
     measurements = measurement_model.predict([mask_pred, ghw])
 

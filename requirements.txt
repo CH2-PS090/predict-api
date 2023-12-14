@@ -4,3 +4,5 @@ tensorflow
 google.cloud.storage
 numpy
 keras
+tarfile
+os
