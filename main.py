@@ -18,6 +18,7 @@ app = Flask(__name__)
 
 # Load measurement model
 measurement_model = load_model('models/measurement_model.h5')
+neck_prediction_model = load_model('models/neck_prediction_model.h5')
 
 # Creates and loads pretrained deeplab model
 tarball_path = "models/deeplab_model.tar.gz"
@@ -55,7 +56,17 @@ def run_deeplab(image, h=512, w=512):
     seg_map = batch_seg_map[0]
     return seg_map
 
-def predict(image, gender, height, weight): # (imagefile, string, float, float)
+def predict_bodyfat(neck, height, waist, is_male=True, hip=None):
+    if is_male:
+        bodyfat_percentage = 495 / (1.0324 - 0.19077 * np.log10(waist - neck) + 0.15456 * np.log10(height)) - 450
+    else:
+        if hip is None:
+            raise ValueError("Hip measurement is required for females.")
+        bodyfat_percentage = 495 / (1.29579 - 0.35004 * np.log10(waist + hip - neck) + 0.22100 * np.log10(height)) - 450
+
+    return bodyfat_percentage
+
+def predict(image, gender, height, weight, age): # (imagefile, string, float, float)
     # Prepare ghw data
     if gender == 'male':
         ghw = [0, 1, height, weight]
@@ -69,9 +80,32 @@ def predict(image, gender, height, weight): # (imagefile, string, float, float)
     person_mask = (seg_map == 15).astype(np.uint8)                          # only take the person mask (shape: (256, 256))
     mask_pred = np.stack([person_mask, person_mask, person_mask], axis=-1)  # convert to RGB-like (shape: (256, 256, 3))
     # Predict measuremets
-    measurements = measurement_model.predict([mask_pred, ghw])
+    measurements = measurement_model.predict([mask_pred, ghw])              # [ankle, arm-length, bicep, calf, chest, forearm, height, hip, leg-length, shoulder-breadth, shoulder-to-crotch, thigh, waist, wrist] 14 total
+    # Predict neck
+    neck_pred = neck_prediction_model.predict([
+        age,
+        weight,
+        height,
+        measurements[4],    # chest
+        measurements[12],   # waist
+        measurements[7],    # hip
+        measurements[11],   # thigh
+        measurements[0],    # ankle
+        measurements[2],    # bicep
+        measurements[5],    # forearm
+        measurements[13]    # wrist
+    ])
+    # Replace height prediction with neck prediction
+    measurements[6] = neck_pred
+    # Estimate bodyfat
+    bodyfat_pred = None
+    if gender == 'male':
+        bodyfat_pred = predict_bodyfat(neck_pred, height, measurements[12])
+    else:
+        bodyfat_pred = predict_bodyfat(neck_pred, height, measurements[12], False, measurements[7])
+    measurements.append(bodyfat_pred)
 
-    return measurements[0].tolist() # [ankle, arm-length, bicep, calf, chest, forearm, height, hip, leg-length, shoulder-breadth, shoulder-to-crotch, thigh, waist, wrist] 14 total
+    return measurements[0].tolist()
 
 @app.route('/process', methods=['POST'])
 def process_image():
@@ -104,18 +138,20 @@ def process_image():
         gender = request.form.get('gender')
         height_str = request.form.get('height')
         weight_str = request.form.get('weight')
+        age_str = request.form.get('age')
 
-        if height_str is None or weight_str is None:
-            return jsonify({'error': 'Height and weight must be provided as valid numbers'})
+        if height_str is None or weight_str is None or age_str is None:
+            return jsonify({'error': 'Height, weight, and age must be provided as valid numbers'})
 
         try:
             height = float(height_str)
             weight = float(weight_str)
+            age    = int(age_str)
         except ValueError:
-            return jsonify({'error': 'Invalid height or weight format'})
+            return jsonify({'error': 'Invalid height, weight, or age format'})
         
         # Predict
-        predictions = predict(image, gender, height, weight)
+        predictions = predict(image, gender, height, weight, age)
         predictions_dict = {
             'ankle': predictions[0],
             'arm-length': predictions[1],
@@ -123,14 +159,15 @@ def process_image():
             'calf': predictions[3],
             'chest': predictions[4],
             'forearm': predictions[5],
-            'height': predictions[6],
+            'neck': predictions[6],
             'hip': predictions[7],
             'leg-length': predictions[8],
             'shoulder-breadth': predictions[9],
             'shoulder-to-crotch': predictions[10],
             'thigh': predictions[11],
             'waist': predictions[12],
-            'wrist': predictions[13]
+            'wrist': predictions[13],
+            'bodyfat': predictions[14]
         }
         return jsonify({'predictions': predictions_dict})
 
