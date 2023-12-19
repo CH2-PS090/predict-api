@@ -4,5 +4,3 @@ tensorflow
 google.cloud.storage
 numpy
 keras
-flask_mysqldb
-jwt
