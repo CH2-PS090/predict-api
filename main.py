@@ -2,21 +2,9 @@ from flask import Flask, request, jsonify
 from google.cloud import storage
 from google.cloud.storage import Blob
 import tensorflow as tf
-from flask_mysqldb import MySQL
-from datetime import datetime
-import jwt
 from predict import predict
 
 app = Flask(__name__)
-
-app.config['MYSQL_HOST'] = 'localhost'
-app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = ''
-app.config['MYSQL_DB'] = 'equifit'
-app.config['SECRET_KEY'] = 'equifit'
-
-mysql = MySQL(app)
-today = datetime.today().date()
 # PROJECT_ID = 'equifit-testing'
 # BUCKET_NAME = 'equifit-model-bucket'
 
@@ -24,19 +12,6 @@ today = datetime.today().date()
 
 @app.route('/process', methods=['POST'])
 def process_image():
-    try:
-        # Ambil token dari header Authorization
-        authorization_header = request.headers.get('Authorization')
-        if authorization_header and authorization_header.startswith('Bearer '):
-            token = authorization_header.split(' ')[1]
-            decoded_token = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
-            userId = decoded_token.get('userId')
-            email = decoded_token.get('email')
-    except jwt.ExpiredSignatureError:
-        return jsonify({'error': 'Token has expired'}), 401
-    except jwt.InvalidTokenError:
-        return jsonify({'error': 'Invalid token'}), 401
-            
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'})
 
@@ -97,10 +72,6 @@ def process_image():
             'wrist': predictions[13],
             'bodyfat': predictions[14]
         }
-        cursor = mysql.connection.cursor()
-        cursor.execute(''' INSERT INTO history VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(userId,predictions[0],predictions[1],predictions[2],predictions[3],predictions[4],predictions[5],predictions[6],predictions[7],predictions[8],predictions[9],predictions[10],predictions[11],predictions[12],predictions[13],predictions[14],today))
-        mysql.connection.commit()
-        cursor.close()
         return jsonify({'predictions': predictions_dict})
 
 if __name__ == '__main__':
