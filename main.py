@@ -9,9 +9,9 @@ from predict import predict
 
 app = Flask(__name__)
 
-app.config['MYSQL_HOST'] = 'localhost'
+app.config['MYSQL_HOST'] = '34.101.224.237'
 app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = ''
+app.config['MYSQL_PASSWORD'] = '5;KQRYYy3iV8.Jz}'
 app.config['MYSQL_DB'] = 'equifit'
 app.config['SECRET_KEY'] = 'equifit'
 
