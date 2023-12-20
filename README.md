@@ -7,3 +7,4 @@ This is a python code, so make sure you have python installed on your system
   3. Open terminal in the project root directory, then run `pip install -r requirements.txt` to install the dependencies.
   4. Run the app using the command: `python main.py`.
   5. By default, the server will run on the localhost with the port 5000.
+  6. If it doesn't show any errors then you have successfully run the service and you can try it using postman.
